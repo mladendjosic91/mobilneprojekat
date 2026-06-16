@@ -83,7 +83,8 @@ data class FilterParams(
     val minYear: Int? = null,
     val maxYear: Int? = null,
     val minRating: Float? = null,
-    val sortBy: String = "imdb_rating"
+    val sortBy: String = "imdb_rating",
+    val sortOrder: String = "desc"
 ) {
     val activeFilterCount: Int get() {
         var count = 0

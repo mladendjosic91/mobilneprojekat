@@ -2,107 +2,102 @@ package com.example.rma_premiere.ui.screens.quiz
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.example.rma_premiere.data.repository.MoviesRepository
+import com.example.rma_premiere.data.remote.isNetworkError
 import com.example.rma_premiere.data.repository.QuizRepository
-import com.example.rma_premiere.domain.model.QuizQuestion
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.launch
 import kotlin.math.min
 
-const val QUIZ_DURATION_SECONDS = 60
-const val TOTAL_QUESTIONS = 10
-
-data class QuizState(
-    val phase: QuizPhase = QuizPhase.IDLE,
-    val questions: List<QuizQuestion> = emptyList(),
-    val currentQuestionIndex: Int = 0,
-    val selectedAnswer: String? = null,
-    val answers: List<String?> = emptyList(),
-    val timeRemainingSeconds: Int = QUIZ_DURATION_SECONDS,
-    val isLoading: Boolean = false,
-    val error: String? = null,
-    val showAbandonDialog: Boolean = false,
-    val result: QuizResult? = null
-)
-
-data class QuizResult(
-    val score: Float,
-    val correctAnswers: Int,
-    val timeUsedSeconds: Int
-)
-
-enum class QuizPhase { IDLE, LOADING, IN_PROGRESS, ANSWER_REVEALED, FINISHED }
-
-sealed class QuizIntent {
-    object StartQuiz : QuizIntent()
-    data class SelectAnswer(val answer: String) : QuizIntent()
-    object NextQuestion : QuizIntent()
-    object ShowAbandonDialog : QuizIntent()
-    object ConfirmAbandon : QuizIntent()
-    object DismissAbandonDialog : QuizIntent()
-    object Reset : QuizIntent()
-}
-
 class QuizViewModel(
-    private val quizRepository: QuizRepository,
-    private val moviesRepository: MoviesRepository
+    private val quizRepository: QuizRepository
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(QuizState())
-    val state: StateFlow<QuizState> = _state.asStateFlow()
+    private val _state = MutableStateFlow(QuizContract.UiState())
+    val state = _state.asStateFlow()
+
+    private fun setState(reducer: QuizContract.UiState.() -> QuizContract.UiState) {
+        _state.getAndUpdate(reducer)
+    }
+
+    private val events = MutableSharedFlow<QuizContract.UiEvent>()
+    fun setEvent(event: QuizContract.UiEvent) {
+        viewModelScope.launch { events.emit(event) }
+    }
 
     private var timerJob: Job? = null
 
-    fun onIntent(intent: QuizIntent) {
-        when (intent) {
-            is QuizIntent.StartQuiz -> startQuiz()
-            is QuizIntent.SelectAnswer -> selectAnswer(intent.answer)
-            is QuizIntent.NextQuestion -> nextQuestion()
-            is QuizIntent.ShowAbandonDialog -> _state.update { it.copy(showAbandonDialog = true) }
-            is QuizIntent.ConfirmAbandon -> abandonQuiz()
-            is QuizIntent.DismissAbandonDialog -> _state.update { it.copy(showAbandonDialog = false) }
-            is QuizIntent.Reset -> _state.update { QuizState() }
+    init {
+        observeEvents()
+    }
+
+    private fun observeEvents() {
+        viewModelScope.launch {
+            events.collect { event ->
+                when (event) {
+                    QuizContract.UiEvent.StartQuiz -> startQuiz()
+                    is QuizContract.UiEvent.SelectAnswer -> selectAnswer(event.answer)
+                    QuizContract.UiEvent.NextQuestion -> nextQuestion()
+                    QuizContract.UiEvent.ShowAbandonDialog -> setState { copy(showAbandonDialog = true) }
+                    QuizContract.UiEvent.ConfirmAbandon -> abandonQuiz()
+                    QuizContract.UiEvent.DismissAbandonDialog -> setState { copy(showAbandonDialog = false) }
+                    QuizContract.UiEvent.Reset -> setState { QuizContract.UiState() }
+                }
+            }
         }
     }
 
     private fun startQuiz() {
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, error = null, phase = QuizPhase.LOADING) }
+            setState { copy(isLoading = true, error = null, phase = QuizPhase.LOADING) }
             try {
                 if (!quizRepository.canStartQuiz()) {
-                    _state.update { it.copy(
-                        isLoading = false,
-                        phase = QuizPhase.IDLE,
-                        error = "Browse the catalog first to populate your quiz pool."
-                    )}
+                    setState {
+                        copy(
+                            isLoading = false,
+                            phase = QuizPhase.IDLE,
+                            error = "Browse the catalog first to populate your quiz pool."
+                        )
+                    }
                     return@launch
                 }
                 val questions = quizRepository.generateQuiz()
                 if (questions.size < TOTAL_QUESTIONS) {
-                    _state.update { it.copy(
-                        isLoading = false,
-                        phase = QuizPhase.IDLE,
-                        error = "Not enough movie data for quiz. Please browse the catalog."
-                    )}
+                    setState {
+                        copy(
+                            isLoading = false,
+                            phase = QuizPhase.IDLE,
+                            error = "Not enough movie data for quiz. Please browse the catalog."
+                        )
+                    }
                     return@launch
                 }
-                _state.update { it.copy(
-                    isLoading = false,
-                    phase = QuizPhase.IN_PROGRESS,
-                    questions = questions,
-                    currentQuestionIndex = 0,
-                    answers = List(questions.size) { null },
-                    timeRemainingSeconds = QUIZ_DURATION_SECONDS,
-                    selectedAnswer = null
-                )}
+                setState {
+                    copy(
+                        isLoading = false,
+                        phase = QuizPhase.IN_PROGRESS,
+                        questions = questions,
+                        currentQuestionIndex = 0,
+                        answers = List(questions.size) { null },
+                        timeRemainingSeconds = QUIZ_DURATION_SECONDS,
+                        selectedAnswer = null,
+                        result = null
+                    )
+                }
                 startTimer()
             } catch (e: Exception) {
-                _state.update { it.copy(isLoading = false, phase = QuizPhase.IDLE, error = e.message ?: "Failed to start quiz") }
+                setState {
+                    copy(
+                        isLoading = false,
+                        phase = QuizPhase.IDLE,
+                        error = if (e.isNetworkError) "You're offline. Some question types need a connection."
+                                else e.message ?: "Failed to start quiz"
+                    )
+                }
             }
         }
     }
@@ -112,8 +107,9 @@ class QuizViewModel(
         timerJob = viewModelScope.launch {
             while (_state.value.timeRemainingSeconds > 0 && _state.value.phase != QuizPhase.FINISHED) {
                 delay(1000L)
-                _state.update { it.copy(timeRemainingSeconds = it.timeRemainingSeconds - 1) }
+                setState { copy(timeRemainingSeconds = timeRemainingSeconds - 1) }
                 if (_state.value.timeRemainingSeconds == 0) {
+                    // Istek vremena: automatski vodi na rezultat, neodgovorena pitanja vrede 0
                     finishQuiz()
                 }
             }
@@ -127,13 +123,15 @@ class QuizViewModel(
         val updatedAnswers = state.answers.toMutableList()
         updatedAnswers[state.currentQuestionIndex] = answer
 
-        _state.update { it.copy(
-            selectedAnswer = answer,
-            answers = updatedAnswers,
-            phase = QuizPhase.ANSWER_REVEALED
-        )}
+        setState {
+            copy(
+                selectedAnswer = answer,
+                answers = updatedAnswers,
+                phase = QuizPhase.ANSWER_REVEALED
+            )
+        }
 
-        // Auto-advance after a short delay
+        // Kratko prikazi tacan/pogresan odgovor pa predji na sledece pitanje
         viewModelScope.launch {
             delay(1200L)
             if (_state.value.phase == QuizPhase.ANSWER_REVEALED) {
@@ -148,11 +146,13 @@ class QuizViewModel(
         if (nextIndex >= TOTAL_QUESTIONS) {
             finishQuiz()
         } else {
-            _state.update { it.copy(
-                currentQuestionIndex = nextIndex,
-                selectedAnswer = null,
-                phase = QuizPhase.IN_PROGRESS
-            )}
+            setState {
+                copy(
+                    currentQuestionIndex = nextIndex,
+                    selectedAnswer = null,
+                    phase = QuizPhase.IN_PROGRESS
+                )
+            }
         }
     }
 
@@ -163,10 +163,12 @@ class QuizViewModel(
         val correctAnswers = state.questions.zip(state.answers).count { (q, a) -> a == q.correctAnswer }
         val score = calculateScore(correctAnswers, state.timeRemainingSeconds)
 
-        _state.update { it.copy(
-            phase = QuizPhase.FINISHED,
-            result = QuizResult(score, correctAnswers, timeUsed)
-        )}
+        setState {
+            copy(
+                phase = QuizPhase.FINISHED,
+                result = QuizResult(score, correctAnswers, timeUsed)
+            )
+        }
 
         viewModelScope.launch {
             quizRepository.saveResult(score, correctAnswers, TOTAL_QUESTIONS, timeUsed)
@@ -175,9 +177,11 @@ class QuizViewModel(
 
     private fun abandonQuiz() {
         timerJob?.cancel()
-        _state.update { QuizState() }
+        // Potvrdjen izlazak ne boduje sesiju
+        setState { QuizContract.UiState() }
     }
 
+    // UBP = BTO * (9 + PVT / MVT), ograniceno na 100
     private fun calculateScore(correct: Int, timeRemaining: Int): Float {
         if (correct == 0) return 0f
         val score = correct * (9f + timeRemaining.toFloat() / QUIZ_DURATION_SECONDS)

@@ -12,6 +12,9 @@ interface QuizDao {
     @Insert
     suspend fun insertQuizResult(result: QuizResultEntity)
 
+    @Insert
+    suspend fun insertQuizResults(results: List<QuizResultEntity>)
+
     @Query("SELECT * FROM quiz_results ORDER BY playedAt DESC")
     fun getAllResults(): Flow<List<QuizResultEntity>>
 

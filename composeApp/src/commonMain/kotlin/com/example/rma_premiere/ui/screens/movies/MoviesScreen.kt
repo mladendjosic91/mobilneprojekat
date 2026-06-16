@@ -2,9 +2,13 @@ package com.example.rma_premiere.ui.screens.movies
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
@@ -18,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.example.rma_premiere.domain.model.FilterParams
 import com.example.rma_premiere.domain.model.Movie
+import com.example.rma_premiere.ui.components.OfflineBanner
 import com.example.rma_premiere.ui.screens.filter.FilterScreen
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -43,17 +48,17 @@ fun MoviesScreen(
             currentFilters = state.pendingFilters,
             genres = state.genres,
             onApply = { filters ->
-                viewModel.onIntent(MoviesIntent.ApplyFilters(filters))
+                viewModel.setEvent(MoviesContract.UiEvent.ApplyFilters(filters))
                 showFilter = false
             },
             onBack = {
-                viewModel.onIntent(MoviesIntent.UpdatePendingFilters(state.filters))
+                viewModel.setEvent(MoviesContract.UiEvent.UpdatePendingFilters(state.filters))
                 showFilter = false
             },
             onClear = {
-                viewModel.onIntent(MoviesIntent.UpdatePendingFilters(FilterParams()))
+                viewModel.setEvent(MoviesContract.UiEvent.UpdatePendingFilters(FilterParams()))
             },
-            onFilterChange = { viewModel.onIntent(MoviesIntent.UpdatePendingFilters(it)) }
+            onFilterChange = { viewModel.setEvent(MoviesContract.UiEvent.UpdatePendingFilters(it)) }
         )
         return
     }
@@ -78,6 +83,9 @@ fun MoviesScreen(
         }
     ) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            if (state.isOffline) {
+                OfflineBanner()
+            }
             // Sort pill + movie count row
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -89,28 +97,42 @@ fun MoviesScreen(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
-                Box {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     FilterChip(
-                        selected = true,
-                        onClick = { showSortDropdown = true },
-                        label = { Text("Sort: ${SORT_OPTIONS.find { it.first == state.filters.sortBy }?.second ?: "Rating"}") }
-                    )
-                    DropdownMenu(
-                        expanded = showSortDropdown,
-                        onDismissRequest = { showSortDropdown = false }
-                    ) {
-                        SORT_OPTIONS.forEach { (key, label) ->
-                            DropdownMenuItem(
-                                text = { Text(label) },
-                                onClick = {
-                                    viewModel.onIntent(MoviesIntent.ChangeSortBy(key))
-                                    showSortDropdown = false
-                                },
-                                leadingIcon = {
-                                    if (state.filters.sortBy == key)
-                                        RadioButton(selected = true, onClick = null)
-                                }
+                        selected = false,
+                        onClick = { viewModel.setEvent(MoviesContract.UiEvent.ToggleSortOrder) },
+                        label = {
+                            Icon(
+                                if (state.filters.sortOrder == "desc") Icons.Default.ArrowDownward
+                                else Icons.Default.ArrowUpward,
+                                contentDescription = "Sort order",
+                                modifier = Modifier.size(16.dp)
                             )
+                        }
+                    )
+                    Box {
+                        FilterChip(
+                            selected = true,
+                            onClick = { showSortDropdown = true },
+                            label = { Text("Sort: ${SORT_OPTIONS.find { it.first == state.filters.sortBy }?.second ?: "Rating"}") }
+                        )
+                        DropdownMenu(
+                            expanded = showSortDropdown,
+                            onDismissRequest = { showSortDropdown = false }
+                        ) {
+                            SORT_OPTIONS.forEach { (key, label) ->
+                                DropdownMenuItem(
+                                    text = { Text(label) },
+                                    onClick = {
+                                        viewModel.setEvent(MoviesContract.UiEvent.ChangeSortBy(key))
+                                        showSortDropdown = false
+                                    },
+                                    leadingIcon = {
+                                        if (state.filters.sortBy == key)
+                                            RadioButton(selected = true, onClick = null)
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -126,7 +148,7 @@ fun MoviesScreen(
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(state.error!!, style = MaterialTheme.typography.bodyLarge)
-                            Button(onClick = { viewModel.onIntent(MoviesIntent.RetryLoad) }) { Text("Retry") }
+                            Button(onClick = { viewModel.setEvent(MoviesContract.UiEvent.RetryLoad) }) { Text("Retry") }
                         }
                     }
                 }
@@ -136,15 +158,38 @@ fun MoviesScreen(
                     }
                 }
                 else -> {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                    val listState = rememberLazyListState()
+
+                    // Paginacija: kada se priblizimo dnu liste, trazimo sledecu stranicu
+                    val shouldLoadMore by remember {
+                        derivedStateOf {
+                            val info = listState.layoutInfo
+                            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
+                            info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 4
+                        }
+                    }
+                    LaunchedEffect(shouldLoadMore) {
+                        if (shouldLoadMore) viewModel.setEvent(MoviesContract.UiEvent.LoadNextPage)
+                    }
+
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        state.movies.forEach { movie ->
+                        items(state.movies, key = { it.imdbId }) { movie ->
                             MovieListItem(movie = movie, onClick = { onMovieClick(movie.imdbId) })
+                        }
+                        if (state.isLoadingMore) {
+                            item {
+                                Box(
+                                    Modifier.fillMaxWidth().padding(16.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    CircularProgressIndicator(Modifier.size(28.dp))
+                                }
+                            }
                         }
                     }
                 }

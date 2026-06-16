@@ -28,10 +28,14 @@ interface MoviesDao {
         AND (:maxYear IS NULL OR year <= :maxYear)
         AND (:minRating IS NULL OR imdbRating >= :minRating)
         ORDER BY
-            CASE WHEN :sortBy = 'imdb_rating' THEN imdbRating END DESC,
-            CASE WHEN :sortBy = 'year' THEN year END DESC,
-            CASE WHEN :sortBy = 'imdb_votes' THEN imdbVotes END DESC,
-            CASE WHEN :sortBy = 'title' THEN title END ASC,
+            CASE WHEN :sortBy = 'imdb_rating' AND :sortOrder = 'desc' THEN imdbRating END DESC,
+            CASE WHEN :sortBy = 'imdb_rating' AND :sortOrder = 'asc' THEN imdbRating END ASC,
+            CASE WHEN :sortBy = 'year' AND :sortOrder = 'desc' THEN year END DESC,
+            CASE WHEN :sortBy = 'year' AND :sortOrder = 'asc' THEN year END ASC,
+            CASE WHEN :sortBy = 'imdb_votes' AND :sortOrder = 'desc' THEN imdbVotes END DESC,
+            CASE WHEN :sortBy = 'imdb_votes' AND :sortOrder = 'asc' THEN imdbVotes END ASC,
+            CASE WHEN :sortBy = 'title' AND :sortOrder = 'desc' THEN title END DESC,
+            CASE WHEN :sortBy = 'title' AND :sortOrder = 'asc' THEN title END ASC,
             imdbRating DESC
     """)
     fun getFilteredMovies(
@@ -40,7 +44,8 @@ interface MoviesDao {
         minYear: Int? = null,
         maxYear: Int? = null,
         minRating: Float? = null,
-        sortBy: String = "imdb_rating"
+        sortBy: String = "imdb_rating",
+        sortOrder: String = "desc"
     ): Flow<List<MovieEntity>>
 
     @Query("SELECT * FROM movie_details WHERE imdbId = :id")
@@ -48,6 +53,9 @@ interface MoviesDao {
 
     @Query("SELECT COUNT(*) FROM movies")
     suspend fun getMovieCount(): Int
+
+    @Query("SELECT COUNT(*) FROM movies WHERE posterPath IS NOT NULL")
+    suspend fun getMovieCountWithPoster(): Int
 
     @Query("DELETE FROM movies")
     suspend fun deleteAllMovies()

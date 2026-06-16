@@ -2,92 +2,146 @@ package com.example.rma_premiere.ui.screens.movies
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.rma_premiere.data.remote.isNetworkError
 import com.example.rma_premiere.data.repository.MoviesRepository
 import com.example.rma_premiere.domain.model.FilterParams
-import com.example.rma_premiere.domain.model.Genre
-import com.example.rma_premiere.domain.model.Movie
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.getAndUpdate
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
-data class MoviesState(
-    val isLoading: Boolean = false,
-    val movies: List<Movie> = emptyList(),
-    val error: String? = null,
-    val filters: FilterParams = FilterParams(),
-    val pendingFilters: FilterParams = FilterParams(),
-    val genres: List<Genre> = emptyList(),
-    val isSynced: Boolean = false
-)
-
-sealed class MoviesIntent {
-    object LoadMovies : MoviesIntent()
-    object RetryLoad : MoviesIntent()
-    data class ApplyFilters(val filters: FilterParams) : MoviesIntent()
-    data class UpdatePendingFilters(val filters: FilterParams) : MoviesIntent()
-    object ClearFilters : MoviesIntent()
-    data class ChangeSortBy(val sortBy: String) : MoviesIntent()
-}
-
+@OptIn(ExperimentalCoroutinesApi::class)
 class MoviesViewModel(
     private val moviesRepository: MoviesRepository
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(MoviesState())
-    val state: StateFlow<MoviesState> = _state.asStateFlow()
+    private val _state = MutableStateFlow(MoviesContract.UiState())
+    val state = _state.asStateFlow()
 
-    init {
-        onIntent(MoviesIntent.LoadMovies)
+    private fun setState(reducer: MoviesContract.UiState.() -> MoviesContract.UiState) {
+        _state.getAndUpdate(reducer)
     }
 
-    fun onIntent(intent: MoviesIntent) {
-        when (intent) {
-            is MoviesIntent.LoadMovies -> loadMovies()
-            is MoviesIntent.RetryLoad -> loadMovies()
-            is MoviesIntent.ApplyFilters -> applyFilters(intent.filters)
-            is MoviesIntent.UpdatePendingFilters -> _state.update { it.copy(pendingFilters = intent.filters) }
-            is MoviesIntent.ClearFilters -> applyFilters(FilterParams())
-            is MoviesIntent.ChangeSortBy -> changeSortBy(intent.sortBy)
+    private val events = MutableSharedFlow<MoviesContract.UiEvent>()
+    fun setEvent(event: MoviesContract.UiEvent) {
+        viewModelScope.launch { events.emit(event) }
+    }
+
+    init {
+        observeEvents()
+        observeMovies()
+        refresh()
+    }
+
+    private fun observeEvents() {
+        viewModelScope.launch {
+            events.collect { event ->
+                when (event) {
+                    MoviesContract.UiEvent.LoadMovies,
+                    MoviesContract.UiEvent.RetryLoad -> refresh()
+
+                    MoviesContract.UiEvent.LoadNextPage -> loadNextPage()
+
+                    is MoviesContract.UiEvent.ApplyFilters -> applyFilters(event.filters)
+
+                    is MoviesContract.UiEvent.UpdatePendingFilters ->
+                        setState { copy(pendingFilters = event.filters) }
+
+                    MoviesContract.UiEvent.ClearFilters -> applyFilters(FilterParams())
+
+                    is MoviesContract.UiEvent.ChangeSortBy ->
+                        applyFilters(_state.value.filters.copy(sortBy = event.sortBy))
+
+                    MoviesContract.UiEvent.ToggleSortOrder -> {
+                        val current = _state.value.filters
+                        val flipped = if (current.sortOrder == "desc") "asc" else "desc"
+                        applyFilters(current.copy(sortOrder = flipped))
+                    }
+                }
+            }
         }
     }
 
-    private fun loadMovies() {
+    // Room je SSOT: jedan kolektor koji se automatski restartuje kad se filteri promene
+    private fun observeMovies() {
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, error = null) }
+            _state
+                .map { it.filters }
+                .distinctUntilChanged()
+                .flatMapLatest { filters -> moviesRepository.getFilteredMovies(filters) }
+                .collect { movies -> setState { copy(movies = movies) } }
+        }
+    }
+
+    private fun refresh() {
+        viewModelScope.launch {
+            setState { copy(isLoading = true, error = null, isOffline = false, page = 1, endReached = false) }
             try {
-                val genres = moviesRepository.getGenres()
-                moviesRepository.syncMovies(_state.value.filters)
-                collectMovies()
-                _state.update { it.copy(isLoading = false, genres = genres, isSynced = true) }
+                if (_state.value.genres.isEmpty()) {
+                    val genres = moviesRepository.getGenres()
+                    setState { copy(genres = genres) }
+                }
+                val hasMore = moviesRepository.syncMovies(_state.value.filters, page = 1)
+                setState { copy(isLoading = false, isSynced = true, endReached = !hasMore) }
             } catch (e: Exception) {
-                _state.update { it.copy(isLoading = false, error = e.message ?: "Failed to load movies") }
+                setState {
+                    copy(
+                        isLoading = false,
+                        isOffline = e.isNetworkError,
+                        error = if (e.isNetworkError) "No connection. Showing saved movies."
+                                else e.message ?: "Failed to load movies"
+                    )
+                }
+            }
+        }
+    }
+
+    private fun loadNextPage() {
+        val current = _state.value
+        if (current.isLoading || current.isLoadingMore || current.endReached || !current.isSynced) return
+        viewModelScope.launch {
+            setState { copy(isLoadingMore = true) }
+            try {
+                val nextPage = _state.value.page + 1
+                val hasMore = moviesRepository.syncMovies(_state.value.filters, page = nextPage)
+                setState { copy(isLoadingMore = false, page = nextPage, endReached = !hasMore) }
+            } catch (e: Exception) {
+                // Greska pri ucitavanju sledece strane ne rusi listu — zadrzavamo postojece podatke
+                setState { copy(isLoadingMore = false, isOffline = e.isNetworkError) }
             }
         }
     }
 
     private fun applyFilters(filters: FilterParams) {
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, filters = filters, pendingFilters = filters, error = null) }
-            try {
-                moviesRepository.syncMovies(filters)
-                _state.update { it.copy(isLoading = false) }
-            } catch (e: Exception) {
-                _state.update { it.copy(isLoading = false, error = e.message ?: "Failed to filter movies") }
+            setState {
+                copy(
+                    isLoading = true,
+                    filters = filters,
+                    pendingFilters = filters,
+                    error = null,
+                    isOffline = false,
+                    page = 1,
+                    endReached = false
+                )
             }
-        }
-    }
-
-    private fun changeSortBy(sortBy: String) {
-        val newFilters = _state.value.filters.copy(sortBy = sortBy)
-        applyFilters(newFilters)
-    }
-
-    private fun collectMovies() {
-        viewModelScope.launch {
-            moviesRepository.getFilteredMovies(_state.value.filters).collect { movies ->
-                _state.update { it.copy(movies = movies) }
+            try {
+                val hasMore = moviesRepository.syncMovies(filters, page = 1)
+                setState { copy(isLoading = false, isSynced = true, endReached = !hasMore) }
+            } catch (e: Exception) {
+                setState {
+                    copy(
+                        isLoading = false,
+                        isOffline = e.isNetworkError,
+                        error = if (e.isNetworkError) "No connection. Showing saved movies."
+                                else e.message ?: "Failed to filter movies"
+                    )
+                }
             }
         }
     }

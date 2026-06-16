@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.example.rma_premiere.domain.model.CastMember
 import com.example.rma_premiere.domain.model.MovieDetails
+import com.example.rma_premiere.ui.components.OfflineBanner
 import org.koin.compose.viewmodel.koinViewModel
 import org.koin.core.parameter.parametersOf
 
@@ -39,10 +40,13 @@ fun MovieDetailScreen(
     val state by viewModel.state.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    LaunchedEffect(state.toastMessage) {
-        state.toastMessage?.let {
-            snackbarHostState.showSnackbar(it)
-            viewModel.onIntent(MovieDetailIntent.ClearToast)
+    // One-shot poruke stizu kroz SideEffect kanal, ne kroz state
+    LaunchedEffect(Unit) {
+        viewModel.effects.collect { effect ->
+            when (effect) {
+                is MovieDetailContract.SideEffect.ShowMessage ->
+                    snackbarHostState.showSnackbar(effect.message)
+            }
         }
     }
 
@@ -62,18 +66,23 @@ fun MovieDetailScreen(
             state.error != null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(state.error!!)
-                    Button(onClick = { viewModel.onIntent(MovieDetailIntent.Retry) }) { Text("Retry") }
+                    Button(onClick = { viewModel.setEvent(MovieDetailContract.UiEvent.Refresh) }) { Text("Retry") }
                 }
             }
-            state.movie != null -> MovieDetailContent(
-                movie = state.movie!!,
-                isFavorite = state.isFavorite,
-                isInWatchlist = state.isInWatchlist,
-                onFavoriteToggle = { viewModel.onIntent(MovieDetailIntent.ToggleFavorite) },
-                onWatchlistToggle = { viewModel.onIntent(MovieDetailIntent.ToggleWatchlist) },
-                onOpenTrailer = onOpenTrailer,
-                modifier = Modifier.padding(padding)
-            )
+            state.movie != null -> Column(modifier = Modifier.padding(padding)) {
+                if (state.isOffline) {
+                    OfflineBanner()
+                }
+                MovieDetailContent(
+                    movie = state.movie!!,
+                    isFavorite = state.isFavorite,
+                    isInWatchlist = state.isInWatchlist,
+                    onFavoriteToggle = { viewModel.setEvent(MovieDetailContract.UiEvent.ToggleFavorite) },
+                    onWatchlistToggle = { viewModel.setEvent(MovieDetailContract.UiEvent.ToggleWatchlist) },
+                    onOpenTrailer = onOpenTrailer,
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
     }
 }

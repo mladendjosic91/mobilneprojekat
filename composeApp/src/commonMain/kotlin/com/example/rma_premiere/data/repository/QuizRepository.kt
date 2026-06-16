@@ -13,6 +13,7 @@ import com.example.rma_premiere.domain.model.QuizQuestionType
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlin.random.Random
 
 class QuizRepository(
     private val moviesApi: MoviesApi,
@@ -26,7 +27,8 @@ class QuizRepository(
     fun getAllResults(): Flow<List<QuizResultEntity>> = quizDao.getAllResults()
 
     suspend fun canStartQuiz(): Boolean {
-        return moviesDao.getMovieCount() >= 10
+        // Kviz moze da pocne samo ako lokalna baza ima >= 10 filmova sa bar jednom slikom
+        return moviesDao.getMovieCountWithPoster() >= 10
     }
 
     suspend fun generateQuiz(): List<QuizQuestion> {
@@ -74,13 +76,22 @@ class QuizRepository(
         }
     }
 
-    private fun generateGuessMovieQuestion(
+    private suspend fun generateGuessMovieQuestion(
         movie: Movie,
         allMovies: List<Movie>,
         usedMovieIds: Set<String>
     ): QuizQuestion? {
-        val imageUrl = moviesRepository.buildPosterUrl(movie.posterPath) ?: return null
         if (movie.imdbId in usedMovieIds) return null
+
+        // Slucajan izbor poster/backdrop slike (backdrop ako je kesiran u movie_details)
+        val backdropPath = try {
+            moviesDao.getMovieDetails(movie.imdbId).first()?.backdropPath
+        } catch (_: Exception) { null }
+        val imageUrl = if (backdropPath != null && Random.nextBoolean()) {
+            moviesRepository.buildBackdropUrl(backdropPath)
+        } else {
+            moviesRepository.buildPosterUrl(movie.posterPath)
+        } ?: return null
 
         val wrongMovies = allMovies
             .filter { it.imdbId != movie.imdbId && it.title != movie.title }
@@ -124,22 +135,27 @@ class QuizRepository(
 
     private suspend fun generateGuessActorQuestion(movie: Movie, allMovies: List<Movie>): QuizQuestion? {
         return try {
-            val cast = moviesApi.getMovieCast(movie.imdbId, 10).items
-            if (cast.size < 3) return null
-            val correctActor = cast.take(3).random()
             val posterUrl = moviesRepository.buildPosterUrl(movie.posterPath) ?: return null
 
-            // Get wrong actors from other movies
+            // /cast vraca i glumce i crew — za "lead actor" gledamo samo department == Acting
+            val fullCast = moviesApi.getMovieCast(movie.imdbId, 20).items
+            val actors = fullCast.filter { it.department == "Acting" }
+            if (actors.isEmpty()) return null
+            val correctActor = actors.take(3).random()
+
+            // Imena svih ljudi vezanih za film M — pogresni odgovori ne smeju biti medju njima
+            val movieCastNames = fullCast.map { it.name }.toSet()
+
             val wrongActors = allMovies
                 .filter { it.imdbId != movie.imdbId }
                 .shuffled()
                 .take(5)
                 .flatMap { m ->
                     try {
-                        moviesApi.getMovieCast(m.imdbId, 5).items
+                        moviesApi.getMovieCast(m.imdbId, 10).items
                     } catch (e: Exception) { emptyList() }
                 }
-                .filter { it.name != correctActor.name }
+                .filter { it.department == "Acting" && it.name !in movieCastNames }
                 .distinctBy { it.name }
                 .shuffled()
                 .take(3)
@@ -156,6 +172,34 @@ class QuizRepository(
                 correctAnswer = correctActor.name
             )
         } catch (e: Exception) { null }
+    }
+
+    /**
+     * Sinhronizuje kviz istoriju sa servera (GET /me/quiz-results) u Room.
+     * Server cuva samo skor, kategoriju i datum, pa su detalji sesije
+     * (tacni odgovori, vreme) za povucene redove nepoznati (0).
+     * Lokalna tabela se menja tek nakon sto su sve stranice uspesno povucene.
+     */
+    suspend fun syncQuizResults() {
+        val remote = mutableListOf<QuizResultEntity>()
+        var page = 1
+        while (true) {
+            val response = showtimeApi.getMyQuizResults(page = page, pageSize = 100)
+            remote += response.items.map { dto ->
+                QuizResultEntity(
+                    category = dto.category,
+                    score = dto.score,
+                    correctAnswers = 0,
+                    totalQuestions = 0,
+                    timeUsedSeconds = 0,
+                    playedAt = dto.playedAt
+                )
+            }
+            if (page >= response.totalPages || response.items.isEmpty()) break
+            page++
+        }
+        quizDao.deleteAllResults()
+        quizDao.insertQuizResults(remote)
     }
 
     suspend fun saveResult(score: Float, correctAnswers: Int, totalQuestions: Int, timeUsedSeconds: Int) {

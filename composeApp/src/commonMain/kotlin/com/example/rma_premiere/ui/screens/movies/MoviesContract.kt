@@ -1,0 +1,35 @@
+package com.example.rma_premiere.ui.screens.movies
+
+import com.example.rma_premiere.domain.model.FilterParams
+import com.example.rma_premiere.domain.model.Genre
+import com.example.rma_premiere.domain.model.Movie
+
+interface MoviesContract {
+
+    data class UiState(
+        val isLoading: Boolean = false,
+        val isLoadingMore: Boolean = false,
+        val movies: List<Movie> = emptyList(),
+        val error: String? = null,
+        val isOffline: Boolean = false,
+        val filters: FilterParams = FilterParams(),
+        val pendingFilters: FilterParams = FilterParams(),
+        val genres: List<Genre> = emptyList(),
+        val isSynced: Boolean = false,
+        val page: Int = 1,
+        val endReached: Boolean = false
+    )
+
+    sealed class UiEvent {
+        data object LoadMovies : UiEvent()
+        data object RetryLoad : UiEvent()
+        data object LoadNextPage : UiEvent()
+        data class ApplyFilters(val filters: FilterParams) : UiEvent()
+        data class UpdatePendingFilters(val filters: FilterParams) : UiEvent()
+        data object ClearFilters : UiEvent()
+        data class ChangeSortBy(val sortBy: String) : UiEvent()
+        data object ToggleSortOrder : UiEvent()
+    }
+
+    sealed class SideEffect
+}

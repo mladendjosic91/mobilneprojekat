@@ -7,6 +7,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.example.rma_premiere.ui.components.OfflineBanner
 import org.koin.compose.viewmodel.koinViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -17,12 +18,6 @@ fun ProfileScreen(
 ) {
     val state by viewModel.state.collectAsState()
 
-    LaunchedEffect(state.user) {
-        if (state.user == null && !state.isLoggingOut) {
-            // already logged out
-        }
-    }
-
     Scaffold(
         topBar = { TopAppBar(title = { Text("Profile") }) }
     ) { padding ->
@@ -30,6 +25,9 @@ fun ProfileScreen(
             modifier = Modifier.padding(padding).fillMaxSize().padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(24.dp)
         ) {
+            if (state.isOffline) {
+                OfflineBanner()
+            }
             // User info
             state.user?.let { user ->
                 Card(modifier = Modifier.fillMaxWidth()) {
@@ -58,7 +56,7 @@ fun ProfileScreen(
 
             Button(
                 onClick = {
-                    viewModel.onIntent(ProfileIntent.Logout)
+                    viewModel.setEvent(ProfileContract.UiEvent.Logout)
                     onLogout()
                 },
                 modifier = Modifier.fillMaxWidth(),

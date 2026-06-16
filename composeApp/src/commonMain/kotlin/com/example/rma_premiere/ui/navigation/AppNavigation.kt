@@ -1,5 +1,7 @@
 package com.example.rma_premiere.ui.navigation
 
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Favorite
@@ -8,6 +10,7 @@ import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -41,15 +44,32 @@ fun AppNavigation(isLoggedIn: Boolean) {
     val navBackStack by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStack?.destination
 
+    // Dok kviz traje, bottom bar se sklanja da korisnik ne moze da pobegne bez potvrde
+    var quizInProgress by remember { mutableStateOf(false) }
+
     val isMainRoute = bottomNavItems.any { item ->
         currentDestination?.hasRoute(item.route::class) == true
     }
 
-    val startDestination: Any = if (isLoggedIn) MoviesRoute else AuthRoute
+    // Racuna se samo jednom — tranzicije posle toga idu kroz eksplicitnu navigaciju
+    val startDestination: Any = remember { if (isLoggedIn) MoviesRoute else AuthRoute }
+
+    // Prinudna odjava (401) ili bilo koje brisanje tokena vraca korisnika na auth landing
+    LaunchedEffect(isLoggedIn) {
+        val onAuthScreen = navController.currentDestination?.hasRoute(AuthRoute::class) == true
+        if (!isLoggedIn && navController.currentDestination != null && !onAuthScreen) {
+            navController.navigate(AuthRoute) {
+                popUpTo(0) { inclusive = true }
+                launchSingleTop = true
+            }
+        }
+    }
 
     Scaffold(
+        // Insete ostavljamo unutrasnjim ekranima; ovde racunamo samo visinu bottom bara
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
-            if (isMainRoute && isLoggedIn) {
+            if (isMainRoute && isLoggedIn && !quizInProgress) {
                 NavigationBar {
                     bottomNavItems.forEach { item ->
                         NavigationBarItem(
@@ -70,10 +90,11 @@ fun AppNavigation(isLoggedIn: Boolean) {
                 }
             }
         }
-    ) { _ ->
+    ) { innerPadding ->
         NavHost(
             navController = navController,
-            startDestination = startDestination
+            startDestination = startDestination,
+            modifier = Modifier.padding(innerPadding)
         ) {
             composable<AuthRoute> {
                 AuthScreen(
@@ -117,7 +138,8 @@ fun AppNavigation(isLoggedIn: Boolean) {
                             popUpTo(QuizRoute) { inclusive = false }
                         }
                     },
-                    onBack = { navController.popBackStack() }
+                    onBack = { navController.popBackStack() },
+                    onQuizActiveChange = { quizInProgress = it }
                 )
             }
             composable<QuizResultRoute> { backStackEntry ->

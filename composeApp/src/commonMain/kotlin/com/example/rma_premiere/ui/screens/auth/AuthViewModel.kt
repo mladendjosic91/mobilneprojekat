@@ -2,101 +2,95 @@ package com.example.rma_premiere.ui.screens.auth
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.rma_premiere.data.remote.ApiException
+import com.example.rma_premiere.data.remote.isNetworkError
 import com.example.rma_premiere.data.repository.AuthRepository
-import com.example.rma_premiere.data.repository.FavoritesRepository
-import com.example.rma_premiere.data.repository.WatchlistRepository
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.launch
 
-data class AuthState(
-    val isLoading: Boolean = false,
-    val isLoggedIn: Boolean = false,
-    val error: String? = null,
-    val isCheckingAuth: Boolean = true
-)
-
-sealed class AuthIntent {
-    data class Login(val username: String, val password: String) : AuthIntent()
-    data class Register(val fullName: String, val username: String, val password: String) : AuthIntent()
-    object Logout : AuthIntent()
-    object ClearError : AuthIntent()
-}
-
 class AuthViewModel(
-    private val authRepository: AuthRepository,
-    private val favoritesRepository: FavoritesRepository,
-    private val watchlistRepository: WatchlistRepository
+    private val authRepository: AuthRepository
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(AuthState())
-    val state: StateFlow<AuthState> = _state.asStateFlow()
+    private val _state = MutableStateFlow(AuthContract.UiState())
+    val state = _state.asStateFlow()
+
+    private fun setState(reducer: AuthContract.UiState.() -> AuthContract.UiState) {
+        _state.getAndUpdate(reducer)
+    }
+
+    private val events = MutableSharedFlow<AuthContract.UiEvent>()
+    fun setEvent(event: AuthContract.UiEvent) {
+        viewModelScope.launch { events.emit(event) }
+    }
 
     init {
+        observeEvents()
         checkAuthStatus()
+    }
+
+    private fun observeEvents() {
+        viewModelScope.launch {
+            events.collect { event ->
+                when (event) {
+                    is AuthContract.UiEvent.Login -> login(event.username, event.password)
+                    is AuthContract.UiEvent.Register -> register(event.fullName, event.username, event.password)
+                    AuthContract.UiEvent.Logout -> logout()
+                    AuthContract.UiEvent.ClearError -> setState { copy(error = null) }
+                }
+            }
+        }
     }
 
     private fun checkAuthStatus() {
         viewModelScope.launch {
             val token = authRepository.token.first()
-            _state.update { it.copy(isLoggedIn = token != null, isCheckingAuth = false) }
-        }
-    }
-
-    fun onIntent(intent: AuthIntent) {
-        when (intent) {
-            is AuthIntent.Login -> login(intent.username, intent.password)
-            is AuthIntent.Register -> register(intent.fullName, intent.username, intent.password)
-            is AuthIntent.Logout -> logout()
-            is AuthIntent.ClearError -> _state.update { it.copy(error = null) }
+            setState { copy(isLoggedIn = token != null, isCheckingAuth = false) }
         }
     }
 
     private fun login(username: String, password: String) {
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, error = null) }
+            setState { copy(isLoading = true, error = null) }
             try {
                 authRepository.login(username, password)
-                _state.update { it.copy(isLoading = false, isLoggedIn = true) }
+                setState { copy(isLoading = false, isLoggedIn = true) }
             } catch (e: Exception) {
-                _state.update { it.copy(isLoading = false, error = parseError(e)) }
+                setState { copy(isLoading = false, error = parseError(e)) }
             }
         }
     }
 
     private fun register(fullName: String, username: String, password: String) {
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, error = null) }
+            setState { copy(isLoading = true, error = null) }
             try {
                 authRepository.signup(fullName, username, password)
-                _state.update { it.copy(isLoading = false, isLoggedIn = true) }
+                setState { copy(isLoading = false, isLoggedIn = true) }
             } catch (e: Exception) {
-                _state.update { it.copy(isLoading = false, error = parseError(e)) }
+                setState { copy(isLoading = false, error = parseError(e)) }
             }
         }
     }
 
     private fun logout() {
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true) }
-            favoritesRepository.clearLocal()
-            watchlistRepository.clearLocal()
+            setState { copy(isLoading = true) }
             authRepository.logout()
-            _state.update { it.copy(isLoading = false, isLoggedIn = false) }
+            setState { copy(isLoading = false, isLoggedIn = false) }
         }
     }
 
-    private fun parseError(e: Exception): String {
-        val msg = e.message ?: "Unknown error"
-        val type = e::class.simpleName ?: ""
-        return when {
-            msg.contains("401") || msg.contains("Unauthorized") -> "Invalid username or password"
-            msg.contains("409") || msg.contains("Conflict") -> "Username already taken"
-            msg.contains("400") -> "Invalid input. Check your fields"
-            else -> "$type: $msg"
-        }
+    private fun parseError(e: Exception): String = when {
+        e.isNetworkError -> "Network error. Check your connection and try again."
+        e is ApiException && e.statusCode == 401 -> "Invalid username or password"
+        e is ApiException && e.statusCode == 409 -> "Username already taken"
+        e is ApiException && e.statusCode == 400 -> e.serverMessage ?: "Invalid input. Check your fields"
+        e is ApiException -> e.serverMessage ?: "Server error (${e.statusCode})"
+        else -> e.message ?: "Unknown error"
     }
 }

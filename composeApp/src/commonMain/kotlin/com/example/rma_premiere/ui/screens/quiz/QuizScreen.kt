@@ -4,10 +4,14 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.backhandler.BackHandler
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -19,11 +23,12 @@ import com.example.rma_premiere.domain.model.QuizQuestion
 import com.example.rma_premiere.domain.model.QuizQuestionType
 import org.koin.compose.viewmodel.koinViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalComposeUiApi::class)
 @Composable
 fun QuizScreen(
     onNavigateToResult: (Float, Int, Int) -> Unit,
     onBack: () -> Unit,
+    onQuizActiveChange: (Boolean) -> Unit = {},
     viewModel: QuizViewModel = koinViewModel()
 ) {
     val state by viewModel.state.collectAsState()
@@ -31,23 +36,37 @@ fun QuizScreen(
     LaunchedEffect(state.result) {
         state.result?.let { result ->
             onNavigateToResult(result.score, result.correctAnswers, result.timeUsedSeconds)
+            // Reset posle navigacije — povratak na ovaj ekran (Back to Home)
+            // ne sme ponovo da odvede na rezultat
+            viewModel.setEvent(QuizContract.UiEvent.Reset)
         }
+    }
+
+    val quizActive = state.phase == QuizPhase.IN_PROGRESS || state.phase == QuizPhase.ANSWER_REVEALED
+
+    // Dok je kviz u toku: sakrij bottom navigaciju i presretni sistemski Back dijalogom
+    LaunchedEffect(quizActive) { onQuizActiveChange(quizActive) }
+    DisposableEffect(Unit) {
+        onDispose { onQuizActiveChange(false) }
+    }
+    BackHandler(enabled = quizActive) {
+        viewModel.setEvent(QuizContract.UiEvent.ShowAbandonDialog)
     }
 
     // Abandon dialog
     if (state.showAbandonDialog) {
         AlertDialog(
-            onDismissRequest = { viewModel.onIntent(QuizIntent.DismissAbandonDialog) },
+            onDismissRequest = { viewModel.setEvent(QuizContract.UiEvent.DismissAbandonDialog) },
             title = { Text("Abandon quiz?") },
             text = { Text("Your progress will be lost.") },
             confirmButton = {
                 TextButton(onClick = {
-                    viewModel.onIntent(QuizIntent.ConfirmAbandon)
+                    viewModel.setEvent(QuizContract.UiEvent.ConfirmAbandon)
                     onBack()
                 }) { Text("Abandon") }
             },
             dismissButton = {
-                TextButton(onClick = { viewModel.onIntent(QuizIntent.DismissAbandonDialog) }) { Text("Continue") }
+                TextButton(onClick = { viewModel.setEvent(QuizContract.UiEvent.DismissAbandonDialog) }) { Text("Continue") }
             }
         )
     }
@@ -55,7 +74,7 @@ fun QuizScreen(
     when (state.phase) {
         QuizPhase.IDLE -> QuizIdleScreen(
             error = state.error,
-            onStart = { viewModel.onIntent(QuizIntent.StartQuiz) },
+            onStart = { viewModel.setEvent(QuizContract.UiEvent.StartQuiz) },
             onBack = onBack
         )
         QuizPhase.LOADING -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -65,8 +84,8 @@ fun QuizScreen(
             if (state.questions.isNotEmpty()) {
                 QuizInProgressScreen(
                     state = state,
-                    onAnswer = { viewModel.onIntent(QuizIntent.SelectAnswer(it)) },
-                    onAbandon = { viewModel.onIntent(QuizIntent.ShowAbandonDialog) }
+                    onAnswer = { viewModel.setEvent(QuizContract.UiEvent.SelectAnswer(it)) },
+                    onAbandon = { viewModel.setEvent(QuizContract.UiEvent.ShowAbandonDialog) }
                 )
             }
         }
@@ -99,19 +118,20 @@ private fun QuizIdleScreen(error: String?, onStart: () -> Unit, onBack: () -> Un
 
 @Composable
 private fun QuizInProgressScreen(
-    state: QuizState,
+    state: QuizContract.UiState,
     onAnswer: (String) -> Unit,
     onAbandon: () -> Unit
 ) {
-    val question = state.questions[state.currentQuestionIndex]
-
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        // Progress + timer
+        // Abandon + progress + timer
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
+            IconButton(onClick = onAbandon) {
+                Icon(Icons.Default.Close, contentDescription = "Abandon quiz")
+            }
             Text("${state.currentQuestionIndex + 1}/$TOTAL_QUESTIONS", style = MaterialTheme.typography.labelLarge)
             LinearProgressIndicator(
                 progress = { state.timeRemainingSeconds.toFloat() / QUIZ_DURATION_SECONDS },
@@ -132,12 +152,16 @@ private fun QuizInProgressScreen(
             transitionSpec = {
                 slideInHorizontally(tween(300)) { it } togetherWith slideOutHorizontally(tween(300)) { -it }
             }
-        ) { _ ->
+        ) { index ->
+            // Pitanje se izvodi iz animiranog indeksa da bi tranzicija
+            // prikazivala staro pitanje dok izlazi i novo dok ulazi
+            val question = state.questions[index]
+            val isCurrent = index == state.currentQuestionIndex
             QuestionCard(
                 question = question,
-                selectedAnswer = state.selectedAnswer,
-                isRevealed = state.phase == QuizPhase.ANSWER_REVEALED,
-                onAnswer = { if (state.phase == QuizPhase.IN_PROGRESS) onAnswer(it) }
+                selectedAnswer = if (isCurrent) state.selectedAnswer else state.answers.getOrNull(index),
+                isRevealed = if (isCurrent) state.phase == QuizPhase.ANSWER_REVEALED else true,
+                onAnswer = { if (isCurrent && state.phase == QuizPhase.IN_PROGRESS) onAnswer(it) }
             )
         }
     }
@@ -175,18 +199,28 @@ private fun QuestionCard(
         // Answer options
         question.options.forEach { option ->
             val containerColor = when {
-                !isRevealed -> MaterialTheme.colorScheme.surfaceVariant
+                !isRevealed -> MaterialTheme.colorScheme.primaryContainer
                 option == question.correctAnswer -> Color(0xFF4CAF50)
                 option == selectedAnswer -> MaterialTheme.colorScheme.error
                 else -> MaterialTheme.colorScheme.surfaceVariant
             }
+            val textColor = when {
+                !isRevealed -> MaterialTheme.colorScheme.onPrimaryContainer
+                option == question.correctAnswer -> Color.White
+                option == selectedAnswer -> Color.White
+                else -> MaterialTheme.colorScheme.onSurfaceVariant
+            }
             Button(
-                onClick = { onAnswer(option) },
+                onClick = { if (!isRevealed) onAnswer(option) },
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(containerColor = containerColor),
-                enabled = !isRevealed
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = containerColor,
+                    disabledContainerColor = containerColor,
+                    contentColor = textColor,
+                    disabledContentColor = textColor
+                )
             ) {
-                Text(option, color = if (!isRevealed) MaterialTheme.colorScheme.onSurfaceVariant else Color.White)
+                Text(option, color = textColor)
             }
         }
     }

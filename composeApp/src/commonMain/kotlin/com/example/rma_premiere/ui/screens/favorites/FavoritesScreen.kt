@@ -1,8 +1,8 @@
 package com.example.rma_premiere.ui.screens.favorites
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
@@ -10,6 +10,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.example.rma_premiere.ui.components.OfflineBanner
 import com.example.rma_premiere.ui.screens.movies.MovieListItem
 import org.koin.compose.viewmodel.koinViewModel
 
@@ -24,32 +25,42 @@ fun FavoritesScreen(
     Scaffold(
         topBar = { TopAppBar(title = { Text("Favorites") }) }
     ) { padding ->
-        when {
-            state.isLoading && state.movies.isEmpty() -> {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
+        Column(modifier = Modifier.padding(padding).fillMaxSize()) {
+            if (state.isOffline) {
+                OfflineBanner()
             }
-            state.movies.isEmpty() -> {
-                Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                    Text("No favorites yet", style = MaterialTheme.typography.bodyLarge)
+            state.error?.let {
+                Text(
+                    it,
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+            }
+            when {
+                state.isLoading && state.movies.isEmpty() -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { CircularProgressIndicator() }
                 }
-            }
-            else -> {
-                Column(
-                    modifier = Modifier
-                        .padding(padding)
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                        .padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    state.movies.forEach { movie ->
-                        Box {
-                            MovieListItem(movie = movie, onClick = { onMovieClick(movie.imdbId) })
-                            IconButton(
-                                onClick = { viewModel.onIntent(FavoritesIntent.RemoveFavorite(movie)) },
-                                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)
-                            ) {
-                                Icon(Icons.Default.Delete, "Remove", tint = MaterialTheme.colorScheme.error)
+                state.movies.isEmpty() -> {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text("No favorites yet", style = MaterialTheme.typography.bodyLarge)
+                    }
+                }
+                else -> {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        items(state.movies, key = { it.imdbId }) { movie ->
+                            Box {
+                                MovieListItem(movie = movie, onClick = { onMovieClick(movie.imdbId) })
+                                IconButton(
+                                    onClick = { viewModel.setEvent(FavoritesContract.UiEvent.RemoveFavorite(movie)) },
+                                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp)
+                                ) {
+                                    Icon(Icons.Default.Delete, "Remove", tint = MaterialTheme.colorScheme.error)
+                                }
                             }
                         }
                     }

@@ -39,37 +39,43 @@ class MoviesRepository(
     fun buildBackdropUrl(path: String?) = buildImageUrl(path, backdropSize)
     fun buildProfileUrl(path: String?) = buildImageUrl(path, profileSize)
 
-    suspend fun syncMovies(filters: FilterParams) {
-        try {
-            val response = api.getMovies(
-                pageSize = 100,
-                sortBy = filters.sortBy,
-                genreId = filters.genreId,
-                query = filters.query.ifBlank { null },
-                minYear = filters.minYear,
-                maxYear = filters.maxYear,
-                minRating = filters.minRating
-            )
-            val entities = response.items.map { it.toEntity() }
-            if (filters.query.isBlank() && filters.genreId == null &&
-                filters.minYear == null && filters.maxYear == null && filters.minRating == null) {
-                moviesDao.deleteAllMovies()
-            }
-            moviesDao.insertMovies(entities)
-        } catch (e: Exception) {
-            throw e
+    /**
+     * Sinhronizuje jednu stranicu kataloga sa servera u Room.
+     * Vraca true ako postoji jos stranica (za paginaciju).
+     */
+    suspend fun syncMovies(filters: FilterParams, page: Int = 1): Boolean {
+        val response = api.getMovies(
+            page = page,
+            pageSize = 30,
+            sortBy = filters.sortBy,
+            sortOrder = filters.sortOrder,
+            genreId = filters.genreId,
+            query = filters.query.ifBlank { null },
+            minYear = filters.minYear,
+            maxYear = filters.maxYear,
+            minRating = filters.minRating
+        )
+        val entities = response.items.map { it.toEntity() }
+        val noFilters = filters.query.isBlank() && filters.genreId == null &&
+                filters.minYear == null && filters.maxYear == null && filters.minRating == null
+        if (page == 1 && noFilters) {
+            moviesDao.deleteAllMovies()
         }
+        moviesDao.insertMovies(entities)
+        return response.page < response.totalPages
     }
 
     fun getFilteredMovies(filters: FilterParams): Flow<List<Movie>> {
-        val genreSearch = filters.genreId?.toString()
+        // Poklapa se sa serijalizovanim oblikom u genresJson: [{"id":18,"name":"Drama"},...]
+        val genreSearch = filters.genreId?.let { "\"id\":$it," }
         return moviesDao.getFilteredMovies(
             query = filters.query.ifBlank { null },
             genreSearch = genreSearch,
             minYear = filters.minYear,
             maxYear = filters.maxYear,
             minRating = filters.minRating,
-            sortBy = filters.sortBy
+            sortBy = filters.sortBy,
+            sortOrder = filters.sortOrder
         ).map { entities -> entities.map { it.toDomain() } }
     }
 

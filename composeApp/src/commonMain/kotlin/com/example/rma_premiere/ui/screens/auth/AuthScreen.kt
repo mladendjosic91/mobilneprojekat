@@ -44,10 +44,10 @@ fun AuthScreen(
                 RegisterForm(
                     state = state,
                     onRegister = { fullName, username, password ->
-                        viewModel.onIntent(AuthIntent.Register(fullName, username, password))
+                        viewModel.setEvent(AuthContract.UiEvent.Register(fullName, username, password))
                     },
                     onSwitchToLogin = {
-                        viewModel.onIntent(AuthIntent.ClearError)
+                        viewModel.setEvent(AuthContract.UiEvent.ClearError)
                         showRegister = false
                     }
                 )
@@ -55,10 +55,10 @@ fun AuthScreen(
                 LoginForm(
                     state = state,
                     onLogin = { username, password ->
-                        viewModel.onIntent(AuthIntent.Login(username, password))
+                        viewModel.setEvent(AuthContract.UiEvent.Login(username, password))
                     },
                     onSwitchToRegister = {
-                        viewModel.onIntent(AuthIntent.ClearError)
+                        viewModel.setEvent(AuthContract.UiEvent.ClearError)
                         showRegister = true
                     }
                 )
@@ -69,7 +69,7 @@ fun AuthScreen(
 
 @Composable
 private fun LoginForm(
-    state: AuthState,
+    state: AuthContract.UiState,
     onLogin: (String, String) -> Unit,
     onSwitchToRegister: () -> Unit
 ) {
@@ -130,7 +130,7 @@ private fun LoginForm(
 
 @Composable
 private fun RegisterForm(
-    state: AuthState,
+    state: AuthContract.UiState,
     onRegister: (String, String, String) -> Unit,
     onSwitchToLogin: () -> Unit
 ) {
@@ -138,6 +138,10 @@ private fun RegisterForm(
     var username by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var passwordVisible by remember { mutableStateOf(false) }
+
+    val usernameRegex = remember { Regex("^[A-Za-z0-9_]+$") }
+    val usernameValid = username.length >= 3 && usernameRegex.matches(username)
+    val passwordValid = password.length >= 8
 
     Column(
         modifier = Modifier.fillMaxWidth().padding(32.dp),
@@ -161,7 +165,13 @@ private fun RegisterForm(
             onValueChange = { username = it },
             label = { Text("Username") },
             modifier = Modifier.fillMaxWidth(),
-            singleLine = true
+            singleLine = true,
+            isError = username.isNotEmpty() && !usernameValid,
+            supportingText = {
+                if (username.isNotEmpty() && !usernameValid) {
+                    Text("Min 3 characters: letters, digits and _ only")
+                }
+            }
         )
         OutlinedTextField(
             value = password,
@@ -171,6 +181,12 @@ private fun RegisterForm(
             singleLine = true,
             visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+            isError = password.isNotEmpty() && !passwordValid,
+            supportingText = {
+                if (password.isNotEmpty() && !passwordValid) {
+                    Text("Password must have at least 8 characters")
+                }
+            },
             trailingIcon = {
                 IconButton(onClick = { passwordVisible = !passwordVisible }) {
                     Icon(if (passwordVisible) Icons.Default.VisibilityOff else Icons.Default.Visibility, null)
@@ -185,7 +201,7 @@ private fun RegisterForm(
         Button(
             onClick = { onRegister(fullName, username, password) },
             modifier = Modifier.fillMaxWidth(),
-            enabled = !state.isLoading && fullName.isNotBlank() && username.length >= 3 && password.length >= 8
+            enabled = !state.isLoading && fullName.isNotBlank() && usernameValid && passwordValid
         ) {
             if (state.isLoading) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp)
             else Text("Create Account")

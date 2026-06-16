@@ -2,34 +2,20 @@ package com.example.rma_premiere.ui.screens.moviedetail
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.rma_premiere.data.remote.isNetworkError
 import com.example.rma_premiere.data.repository.FavoritesRepository
 import com.example.rma_premiere.data.repository.MoviesRepository
 import com.example.rma_premiere.data.repository.WatchlistRepository
 import com.example.rma_premiere.domain.model.Movie
 import com.example.rma_premiere.domain.model.MovieDetails
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.getAndUpdate
 import kotlinx.coroutines.launch
-
-data class MovieDetailState(
-    val isLoading: Boolean = false,
-    val movie: MovieDetails? = null,
-    val error: String? = null,
-    val isFavorite: Boolean = false,
-    val isInWatchlist: Boolean = false,
-    val toastMessage: String? = null
-)
-
-sealed class MovieDetailIntent {
-    object Load : MovieDetailIntent()
-    object Retry : MovieDetailIntent()
-    object ToggleFavorite : MovieDetailIntent()
-    object ToggleWatchlist : MovieDetailIntent()
-    object ClearToast : MovieDetailIntent()
-}
 
 class MovieDetailViewModel(
     private val movieId: String,
@@ -38,12 +24,53 @@ class MovieDetailViewModel(
     private val watchlistRepository: WatchlistRepository
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(MovieDetailState())
-    val state: StateFlow<MovieDetailState> = _state.asStateFlow()
+    private val _state = MutableStateFlow(MovieDetailContract.UiState())
+    val state = _state.asStateFlow()
+
+    private fun setState(reducer: MovieDetailContract.UiState.() -> MovieDetailContract.UiState) {
+        _state.getAndUpdate(reducer)
+    }
+
+    private val events = MutableSharedFlow<MovieDetailContract.UiEvent>()
+    fun setEvent(event: MovieDetailContract.UiEvent) {
+        viewModelScope.launch { events.emit(event) }
+    }
+
+    private val _effects = MutableSharedFlow<MovieDetailContract.SideEffect>()
+    val effects = _effects.asSharedFlow()
+
+    private fun setEffect(effect: MovieDetailContract.SideEffect) {
+        viewModelScope.launch { _effects.emit(effect) }
+    }
 
     init {
-        onIntent(MovieDetailIntent.Load)
+        observeEvents()
+        observeMovieDetails()
         observeFavoriteWatchlist()
+        refresh()
+    }
+
+    private fun observeEvents() {
+        viewModelScope.launch {
+            events.collect { event ->
+                when (event) {
+                    MovieDetailContract.UiEvent.Refresh -> refresh()
+                    MovieDetailContract.UiEvent.ToggleFavorite -> toggleFavorite()
+                    MovieDetailContract.UiEvent.ToggleWatchlist -> toggleWatchlist()
+                }
+            }
+        }
+    }
+
+    // Room je SSOT: jedan trajni kolektor, refresh samo upisuje u bazu
+    private fun observeMovieDetails() {
+        viewModelScope.launch {
+            moviesRepository.getMovieDetails(movieId).collect { details ->
+                if (details != null) {
+                    setState { copy(movie = details, isLoading = false, error = null) }
+                }
+            }
+        }
     }
 
     private fun observeFavoriteWatchlist() {
@@ -52,40 +79,32 @@ class MovieDetailViewModel(
                 favoritesRepository.isFavorite(movieId),
                 watchlistRepository.isInWatchlist(movieId)
             ) { fav, wl -> fav to wl }.collect { (fav, wl) ->
-                _state.update { it.copy(isFavorite = fav, isInWatchlist = wl) }
+                setState { copy(isFavorite = fav, isInWatchlist = wl) }
             }
         }
     }
 
-    fun onIntent(intent: MovieDetailIntent) {
-        when (intent) {
-            is MovieDetailIntent.Load, MovieDetailIntent.Retry -> loadDetails()
-            is MovieDetailIntent.ToggleFavorite -> toggleFavorite()
-            is MovieDetailIntent.ToggleWatchlist -> toggleWatchlist()
-            is MovieDetailIntent.ClearToast -> _state.update { it.copy(toastMessage = null) }
-        }
-    }
-
-    private fun loadDetails() {
+    private fun refresh() {
         viewModelScope.launch {
-            _state.update { it.copy(isLoading = true, error = null) }
+            setState { copy(isLoading = movie == null, error = null, isOffline = false) }
             try {
-                val isFav = favoritesRepository.isFavorite(movieId).let {
-                    var result = false
-                    it.collect { v -> result = v; return@collect }
-                    result
-                }
-                val isWl = watchlistRepository.isInWatchlist(movieId).let {
-                    var result = false
-                    it.collect { v -> result = v; return@collect }
-                    result
-                }
+                val isFav = favoritesRepository.isFavorite(movieId).first()
+                val isWl = watchlistRepository.isInWatchlist(movieId).first()
                 moviesRepository.syncMovieDetails(movieId, isFav, isWl)
-                moviesRepository.getMovieDetails(movieId).collect { details ->
-                    _state.update { it.copy(isLoading = false, movie = details) }
-                }
             } catch (e: Exception) {
-                _state.update { it.copy(isLoading = false, error = e.message ?: "Failed to load movie") }
+                setState {
+                    if (movie != null) {
+                        // Kesirani detalji postoje — prikazujemo ih u offline rezimu
+                        copy(isLoading = false, isOffline = e.isNetworkError)
+                    } else {
+                        copy(
+                            isLoading = false,
+                            isOffline = e.isNetworkError,
+                            error = if (e.isNetworkError) "No connection. Movie details not cached yet."
+                                    else e.message ?: "Failed to load movie"
+                        )
+                    }
+                }
             }
         }
     }
@@ -97,14 +116,15 @@ class MovieDetailViewModel(
                 if (_state.value.isFavorite) {
                     favoritesRepository.removeFavorite(movie)
                     moviesRepository.updateFavoriteStatus(movieId, false)
-                    _state.update { it.copy(toastMessage = "Removed from favorites") }
+                    setEffect(MovieDetailContract.SideEffect.ShowMessage("Removed from favorites"))
                 } else {
                     favoritesRepository.addFavorite(movie)
                     moviesRepository.updateFavoriteStatus(movieId, true)
-                    _state.update { it.copy(toastMessage = "Added to favorites") }
+                    setEffect(MovieDetailContract.SideEffect.ShowMessage("Added to favorites"))
                 }
             } catch (e: Exception) {
-                _state.update { it.copy(toastMessage = "Error: ${e.message}") }
+                // Optimisticka izmena je vec vracena u repository-ju — javljamo gresku
+                setEffect(MovieDetailContract.SideEffect.ShowMessage(toggleErrorMessage(e)))
             }
         }
     }
@@ -116,17 +136,21 @@ class MovieDetailViewModel(
                 if (_state.value.isInWatchlist) {
                     watchlistRepository.removeFromWatchlist(movie)
                     moviesRepository.updateWatchlistStatus(movieId, false)
-                    _state.update { it.copy(toastMessage = "Removed from watchlist") }
+                    setEffect(MovieDetailContract.SideEffect.ShowMessage("Removed from watchlist"))
                 } else {
                     watchlistRepository.addToWatchlist(movie)
                     moviesRepository.updateWatchlistStatus(movieId, true)
-                    _state.update { it.copy(toastMessage = "Added to watchlist") }
+                    setEffect(MovieDetailContract.SideEffect.ShowMessage("Added to watchlist"))
                 }
             } catch (e: Exception) {
-                _state.update { it.copy(toastMessage = "Error: ${e.message}") }
+                setEffect(MovieDetailContract.SideEffect.ShowMessage(toggleErrorMessage(e)))
             }
         }
     }
+
+    private fun toggleErrorMessage(e: Exception): String =
+        if (e.isNetworkError) "No connection — change reverted"
+        else "Error: ${e.message}"
 
     private fun MovieDetails.toMovie() = Movie(
         imdbId = imdbId,

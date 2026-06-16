@@ -20,16 +20,7 @@ kotlin {
         }
     }
 
-    listOf(
-        iosArm64(),
-        iosSimulatorArm64()
-    ).forEach { iosTarget ->
-        iosTarget.binaries.framework {
-            baseName = "ComposeApp"
-            isStatic = true
-        }
-    }
-
+    // Multiplatform targeti: Android + JVM (desktop), u skladu sa specifikacijom
     jvm()
 
     sourceSets {
@@ -46,6 +37,7 @@ kotlin {
             implementation(libs.compose.material3)
             implementation(compose.materialIconsExtended)
             implementation(libs.compose.ui)
+            implementation(libs.compose.ui.backhandler)
             implementation(libs.compose.components.resources)
             implementation(libs.compose.uiToolingPreview)
             implementation(libs.androidx.lifecycle.viewmodelCompose)
@@ -76,9 +68,6 @@ kotlin {
         }
         commonTest.dependencies {
             implementation(libs.kotlin.test)
-        }
-        iosMain.dependencies {
-            implementation(libs.ktor.client.darwin)
         }
         jvmMain.dependencies {
             implementation(compose.desktop.currentOs)
@@ -124,8 +113,6 @@ dependencies {
     // Room KSP
     add("kspAndroid", libs.room.compiler)
     add("kspJvm", libs.room.compiler)
-    add("kspIosArm64", libs.room.compiler)
-    add("kspIosSimulatorArm64", libs.room.compiler)
 }
 
 compose.desktop {

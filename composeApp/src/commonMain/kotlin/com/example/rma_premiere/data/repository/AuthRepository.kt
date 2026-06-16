@@ -12,7 +12,10 @@ import kotlinx.coroutines.flow.first
 
 class AuthRepository(
     private val api: ShowtimeApi,
-    private val authDataStore: AuthDataStore
+    private val authDataStore: AuthDataStore,
+    private val favoritesRepository: FavoritesRepository,
+    private val watchlistRepository: WatchlistRepository,
+    private val quizRepository: QuizRepository
 ) {
     val token: Flow<String?> = authDataStore.token
 
@@ -44,8 +47,31 @@ class AuthRepository(
         return User(response.user.id, response.user.username, response.user.fullName)
     }
 
+    /**
+     * Osvezava podatke korisnika sa servera (GET /me) i upisuje ih u DataStore.
+     * Vraca false kada osvezavanje ne uspe — ekran tada prikazuje kesirane podatke (offline).
+     */
+    suspend fun refreshCurrentUser(): Boolean {
+        return try {
+            val token = authDataStore.token.first() ?: return true
+            val me = api.getMe()
+            authDataStore.saveAuth(token, me.id, me.username, me.fullName)
+            true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Centralizovana odjava: brise token i lokalne korisnicke podatke
+     * (favorites, watchlist, kviz statistiku), a cuva globalne podatke o filmovima.
+     * Poziva se i pri rucnom logout-u i pri prinudnoj odjavi na 401.
+     */
     suspend fun logout() {
         TokenHolder.token = null
+        favoritesRepository.clearLocal()
+        watchlistRepository.clearLocal()
+        quizRepository.clearLocalResults()
         authDataStore.clearAuth()
     }
 }
