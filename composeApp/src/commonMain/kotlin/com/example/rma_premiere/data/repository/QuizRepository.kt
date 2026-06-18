@@ -27,7 +27,6 @@ class QuizRepository(
     fun getAllResults(): Flow<List<QuizResultEntity>> = quizDao.getAllResults()
 
     suspend fun canStartQuiz(): Boolean {
-        // Kviz moze da pocne samo ako lokalna baza ima >= 10 filmova sa bar jednom slikom
         return moviesDao.getMovieCountWithPoster() >= 10
     }
 
@@ -48,7 +47,6 @@ class QuizRepository(
         for (movie in shuffled) {
             if (questions.size >= 10) break
 
-            // Determine which type to use
             val availableTypes = QuizQuestionType.values().filter { typeCounts[it]!! < 4 }
             if (availableTypes.isEmpty()) break
 
@@ -83,7 +81,6 @@ class QuizRepository(
     ): QuizQuestion? {
         if (movie.imdbId in usedMovieIds) return null
 
-        // Slucajan izbor poster/backdrop slike (backdrop ako je kesiran u movie_details)
         val backdropPath = try {
             moviesDao.getMovieDetails(movie.imdbId).first()?.backdropPath
         } catch (_: Exception) { null }
@@ -137,13 +134,11 @@ class QuizRepository(
         return try {
             val posterUrl = moviesRepository.buildPosterUrl(movie.posterPath) ?: return null
 
-            // /cast vraca i glumce i crew — za "lead actor" gledamo samo department == Acting
             val fullCast = moviesApi.getMovieCast(movie.imdbId, 20).items
             val actors = fullCast.filter { it.department == "Acting" }
             if (actors.isEmpty()) return null
             val correctActor = actors.take(3).random()
 
-            // Imena svih ljudi vezanih za film M — pogresni odgovori ne smeju biti medju njima
             val movieCastNames = fullCast.map { it.name }.toSet()
 
             val wrongActors = allMovies
@@ -174,12 +169,7 @@ class QuizRepository(
         } catch (e: Exception) { null }
     }
 
-    /**
-     * Sinhronizuje kviz istoriju sa servera (GET /me/quiz-results) u Room.
-     * Server cuva samo skor, kategoriju i datum, pa su detalji sesije
-     * (tacni odgovori, vreme) za povucene redove nepoznati (0).
-     * Lokalna tabela se menja tek nakon sto su sve stranice uspesno povucene.
-     */
+
     suspend fun syncQuizResults() {
         val remote = mutableListOf<QuizResultEntity>()
         var page = 1

@@ -27,7 +27,6 @@ fun QuizResultScreen(
         Text("Quiz Complete!", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(32.dp))
 
-        // Score circle
         Card(
             modifier = Modifier.size(160.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)

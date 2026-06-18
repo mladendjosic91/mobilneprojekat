@@ -28,7 +28,6 @@ fun ProfileScreen(
             if (state.isOffline) {
                 OfflineBanner()
             }
-            // User info
             state.user?.let { user ->
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -38,7 +37,6 @@ fun ProfileScreen(
                 }
             }
 
-            // Stats
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(modifier = Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Statistics", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)

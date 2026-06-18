@@ -47,10 +47,7 @@ class AuthRepository(
         return User(response.user.id, response.user.username, response.user.fullName)
     }
 
-    /**
-     * Osvezava podatke korisnika sa servera (GET /me) i upisuje ih u DataStore.
-     * Vraca false kada osvezavanje ne uspe — ekran tada prikazuje kesirane podatke (offline).
-     */
+
     suspend fun refreshCurrentUser(): Boolean {
         return try {
             val token = authDataStore.token.first() ?: return true
@@ -62,11 +59,7 @@ class AuthRepository(
         }
     }
 
-    /**
-     * Centralizovana odjava: brise token i lokalne korisnicke podatke
-     * (favorites, watchlist, kviz statistiku), a cuva globalne podatke o filmovima.
-     * Poziva se i pri rucnom logout-u i pri prinudnoj odjavi na 401.
-     */
+
     suspend fun logout() {
         TokenHolder.token = null
         favoritesRepository.clearLocal()

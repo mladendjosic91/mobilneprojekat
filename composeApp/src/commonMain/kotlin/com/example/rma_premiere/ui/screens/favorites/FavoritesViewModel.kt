@@ -44,7 +44,6 @@ class FavoritesViewModel(
         }
     }
 
-    // Room je SSOT — lista uvek dolazi iz lokalne baze
     private fun observeFavorites() {
         viewModelScope.launch {
             favoritesRepository.getFavorites().collect { movies ->

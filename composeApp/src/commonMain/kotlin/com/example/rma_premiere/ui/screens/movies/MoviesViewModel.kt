@@ -67,7 +67,6 @@ class MoviesViewModel(
         }
     }
 
-    // Room je SSOT: jedan kolektor koji se automatski restartuje kad se filteri promene
     private fun observeMovies() {
         viewModelScope.launch {
             _state

@@ -74,7 +74,6 @@ class ProfileViewModel(
         }
     }
 
-    // Podaci o korisniku se osvezavaju sa servera (GET /me) pri otvaranju ekrana
     private fun refreshUser() {
         viewModelScope.launch {
             val ok = authRepository.refreshCurrentUser()
@@ -82,8 +81,7 @@ class ProfileViewModel(
         }
     }
 
-    // Kviz istorija se vraca sa servera — statistika prezivi logout/login.
-    // Neuspeh (offline) tiho zadrzava postojece lokalne podatke.
+
     private fun syncQuizHistory() {
         viewModelScope.launch {
             runCatching { quizRepository.syncQuizResults() }

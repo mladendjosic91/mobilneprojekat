@@ -13,7 +13,6 @@ class ShowtimeApplication : Application() {
         super.onCreate()
         appContext = applicationContext
         try {
-            // Guard against double-init (e.g. during testing)
             if (GlobalContext.getOrNull() == null) {
                 startKoin {
                     androidContext(applicationContext)

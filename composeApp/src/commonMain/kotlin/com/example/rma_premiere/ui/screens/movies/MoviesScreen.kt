@@ -86,7 +86,6 @@ fun MoviesScreen(
             if (state.isOffline) {
                 OfflineBanner()
             }
-            // Sort pill + movie count row
             Row(
                 modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -160,7 +159,6 @@ fun MoviesScreen(
                 else -> {
                     val listState = rememberLazyListState()
 
-                    // Paginacija: kada se priblizimo dnu liste, trazimo sledecu stranicu
                     val shouldLoadMore by remember {
                         derivedStateOf {
                             val info = listState.layoutInfo
@@ -213,7 +211,7 @@ fun MovieListItem(movie: Movie, onClick: () -> Unit) {
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.width(93.dp).fillMaxHeight()
             )
-            // Info
+
             Column(
                 modifier = Modifier.fillMaxSize().padding(12.dp),
                 verticalArrangement = Arrangement.SpaceBetween
@@ -233,7 +231,6 @@ fun MovieListItem(movie: Movie, onClick: () -> Unit) {
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    // IMDB Rating
                     movie.imdbRating?.let { rating ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -250,7 +247,6 @@ fun MovieListItem(movie: Movie, onClick: () -> Unit) {
                         }
                     }
                 }
-                // Genre chips
                 Row(
                     modifier = Modifier.horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)

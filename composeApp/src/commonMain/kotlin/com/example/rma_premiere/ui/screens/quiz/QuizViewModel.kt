@@ -109,7 +109,6 @@ class QuizViewModel(
                 delay(1000L)
                 setState { copy(timeRemainingSeconds = timeRemainingSeconds - 1) }
                 if (_state.value.timeRemainingSeconds == 0) {
-                    // Istek vremena: automatski vodi na rezultat, neodgovorena pitanja vrede 0
                     finishQuiz()
                 }
             }
@@ -131,7 +130,6 @@ class QuizViewModel(
             )
         }
 
-        // Kratko prikazi tacan/pogresan odgovor pa predji na sledece pitanje
         viewModelScope.launch {
             delay(1200L)
             if (_state.value.phase == QuizPhase.ANSWER_REVEALED) {
@@ -177,11 +175,9 @@ class QuizViewModel(
 
     private fun abandonQuiz() {
         timerJob?.cancel()
-        // Potvrdjen izlazak ne boduje sesiju
         setState { QuizContract.UiState() }
     }
 
-    // UBP = BTO * (9 + PVT / MVT), ograniceno na 100
     private fun calculateScore(correct: Int, timeRemaining: Int): Float {
         if (correct == 0) return 0f
         val score = correct * (9f + timeRemaining.toFloat() / QUIZ_DURATION_SECONDS)

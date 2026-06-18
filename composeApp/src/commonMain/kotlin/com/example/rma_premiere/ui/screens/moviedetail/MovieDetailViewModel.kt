@@ -62,7 +62,6 @@ class MovieDetailViewModel(
         }
     }
 
-    // Room je SSOT: jedan trajni kolektor, refresh samo upisuje u bazu
     private fun observeMovieDetails() {
         viewModelScope.launch {
             moviesRepository.getMovieDetails(movieId).collect { details ->
@@ -94,7 +93,6 @@ class MovieDetailViewModel(
             } catch (e: Exception) {
                 setState {
                     if (movie != null) {
-                        // Kesirani detalji postoje — prikazujemo ih u offline rezimu
                         copy(isLoading = false, isOffline = e.isNetworkError)
                     } else {
                         copy(
@@ -123,7 +121,6 @@ class MovieDetailViewModel(
                     setEffect(MovieDetailContract.SideEffect.ShowMessage("Added to favorites"))
                 }
             } catch (e: Exception) {
-                // Optimisticka izmena je vec vracena u repository-ju — javljamo gresku
                 setEffect(MovieDetailContract.SideEffect.ShowMessage(toggleErrorMessage(e)))
             }
         }

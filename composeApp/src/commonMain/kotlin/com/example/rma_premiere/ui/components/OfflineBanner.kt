@@ -11,7 +11,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
-/** Traka koja se prikazuje kada sinhronizacija ne uspe zbog mreze — podaci dolaze iz Room kesa. */
 @Composable
 fun OfflineBanner(modifier: Modifier = Modifier) {
     Surface(

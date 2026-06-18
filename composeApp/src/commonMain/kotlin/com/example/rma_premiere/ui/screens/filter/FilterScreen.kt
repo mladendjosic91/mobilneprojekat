@@ -133,7 +133,6 @@ fun FilterScreen(
                 )
             }
 
-            // Min rating
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Minimum Rating: ${String.format("%.1f", minRating)}", style = MaterialTheme.typography.titleSmall)
                 Slider(

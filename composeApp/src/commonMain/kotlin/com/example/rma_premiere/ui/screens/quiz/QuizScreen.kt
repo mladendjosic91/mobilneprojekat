@@ -36,15 +36,12 @@ fun QuizScreen(
     LaunchedEffect(state.result) {
         state.result?.let { result ->
             onNavigateToResult(result.score, result.correctAnswers, result.timeUsedSeconds)
-            // Reset posle navigacije — povratak na ovaj ekran (Back to Home)
-            // ne sme ponovo da odvede na rezultat
             viewModel.setEvent(QuizContract.UiEvent.Reset)
         }
     }
 
     val quizActive = state.phase == QuizPhase.IN_PROGRESS || state.phase == QuizPhase.ANSWER_REVEALED
 
-    // Dok je kviz u toku: sakrij bottom navigaciju i presretni sistemski Back dijalogom
     LaunchedEffect(quizActive) { onQuizActiveChange(quizActive) }
     DisposableEffect(Unit) {
         onDispose { onQuizActiveChange(false) }
@@ -53,7 +50,6 @@ fun QuizScreen(
         viewModel.setEvent(QuizContract.UiEvent.ShowAbandonDialog)
     }
 
-    // Abandon dialog
     if (state.showAbandonDialog) {
         AlertDialog(
             onDismissRequest = { viewModel.setEvent(QuizContract.UiEvent.DismissAbandonDialog) },
@@ -123,7 +119,6 @@ private fun QuizInProgressScreen(
     onAbandon: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        // Abandon + progress + timer
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -146,15 +141,12 @@ private fun QuizInProgressScreen(
 
         Spacer(Modifier.height(16.dp))
 
-        // Question content (animated slide)
         AnimatedContent(
             targetState = state.currentQuestionIndex,
             transitionSpec = {
                 slideInHorizontally(tween(300)) { it } togetherWith slideOutHorizontally(tween(300)) { -it }
             }
         ) { index ->
-            // Pitanje se izvodi iz animiranog indeksa da bi tranzicija
-            // prikazivala staro pitanje dok izlazi i novo dok ulazi
             val question = state.questions[index]
             val isCurrent = index == state.currentQuestionIndex
             QuestionCard(
@@ -178,7 +170,6 @@ private fun QuestionCard(
         modifier = Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        // Image
         question.imageUrl?.let { url ->
             AsyncImage(
                 model = url,
@@ -188,7 +179,6 @@ private fun QuestionCard(
             )
         }
 
-        // Question prompt
         val prompt = when (question.type) {
             QuizQuestionType.GUESS_MOVIE -> "Which movie is this?"
             QuizQuestionType.GUESS_YEAR -> "What year was \"${question.movieTitle}\" released?"
@@ -196,7 +186,6 @@ private fun QuestionCard(
         }
         Text(prompt, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
 
-        // Answer options
         question.options.forEach { option ->
             val containerColor = when {
                 !isRevealed -> MaterialTheme.colorScheme.primaryContainer

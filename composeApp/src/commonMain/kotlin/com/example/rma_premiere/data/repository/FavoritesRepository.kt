@@ -29,24 +29,20 @@ class FavoritesRepository(
     }
 
     suspend fun addFavorite(movie: Movie) {
-        // Optimistic: insert locally first
         favoritesDao.insertFavorite(movie.toFavoriteEntity())
         try {
             api.addFavorite(movie.imdbId)
         } catch (e: Exception) {
-            // Rollback on error
             favoritesDao.removeFavorite(movie.imdbId)
             throw e
         }
     }
 
     suspend fun removeFavorite(movie: Movie) {
-        // Optimistic: remove locally first
         favoritesDao.removeFavorite(movie.imdbId)
         try {
             api.removeFavorite(movie.imdbId)
         } catch (e: Exception) {
-            // Rollback on error
             favoritesDao.insertFavorite(movie.toFavoriteEntity())
             throw e
         }

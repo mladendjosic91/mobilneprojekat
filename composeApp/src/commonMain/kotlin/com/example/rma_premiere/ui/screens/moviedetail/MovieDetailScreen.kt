@@ -40,7 +40,6 @@ fun MovieDetailScreen(
     val state by viewModel.state.collectAsState()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // One-shot poruke stizu kroz SideEffect kanal, ne kroz state
     LaunchedEffect(Unit) {
         viewModel.effects.collect { effect ->
             when (effect) {
@@ -119,7 +118,6 @@ private fun MovieDetailContent(
             }
         }
 
-        // Poster overlapping backdrop + info row
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
             verticalAlignment = Alignment.Top
@@ -138,7 +136,6 @@ private fun MovieDetailContent(
                 modifier = Modifier.padding(top = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                // Favorite + Watchlist buttons
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     IconButton(onClick = onFavoriteToggle) {
                         Icon(
@@ -162,10 +159,8 @@ private fun MovieDetailContent(
             modifier = Modifier.padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // Title
             Text(movie.title, style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
-            // Year + runtime
             Text(
                 buildString {
                     movie.year?.let { append(it) }
@@ -175,7 +170,7 @@ private fun MovieDetailContent(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            // Ratings
+
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                 movie.imdbRating?.let { rating ->
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -189,7 +184,7 @@ private fun MovieDetailContent(
                 }
             }
 
-            // Genres
+
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -199,13 +194,11 @@ private fun MovieDetailContent(
                 }
             }
 
-            // Overview
             movie.overview?.let {
                 Text("Overview", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Text(it, style = MaterialTheme.typography.bodyMedium)
             }
 
-            // Info badges
             Text("Details", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -218,7 +211,6 @@ private fun MovieDetailContent(
                 movie.tmdbVotes?.let { InfoBadge("TMDB Votes", formatVotes(it)) }
             }
 
-            // Backdrop images
             if (movie.backdropImages.isNotEmpty()) {
                 Text("Images", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Row(
@@ -236,7 +228,6 @@ private fun MovieDetailContent(
                 }
             }
 
-            // Cast
             if (movie.cast.isNotEmpty()) {
                 Text("Cast", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

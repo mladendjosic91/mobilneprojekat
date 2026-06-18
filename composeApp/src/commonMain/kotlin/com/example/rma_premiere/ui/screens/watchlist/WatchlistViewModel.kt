@@ -44,7 +44,6 @@ class WatchlistViewModel(
         }
     }
 
-    // Room je SSOT — lista uvek dolazi iz lokalne baze
     private fun observeWatchlist() {
         viewModelScope.launch {
             watchlistRepository.getWatchlist().collect { movies ->

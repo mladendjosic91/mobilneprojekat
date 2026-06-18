@@ -44,14 +44,12 @@ fun AppNavigation(isLoggedIn: Boolean) {
     val navBackStack by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStack?.destination
 
-    // Dok kviz traje, bottom bar se sklanja da korisnik ne moze da pobegne bez potvrde
     var quizInProgress by remember { mutableStateOf(false) }
 
     val isMainRoute = bottomNavItems.any { item ->
         currentDestination?.hasRoute(item.route::class) == true
     }
 
-    // Racuna se samo jednom — tranzicije posle toga idu kroz eksplicitnu navigaciju
     val startDestination: Any = remember { if (isLoggedIn) MoviesRoute else AuthRoute }
 
     // Prinudna odjava (401) ili bilo koje brisanje tokena vraca korisnika na auth landing
@@ -66,7 +64,6 @@ fun AppNavigation(isLoggedIn: Boolean) {
     }
 
     Scaffold(
-        // Insete ostavljamo unutrasnjim ekranima; ovde racunamo samo visinu bottom bara
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             if (isMainRoute && isLoggedIn && !quizInProgress) {
@@ -116,7 +113,6 @@ fun AppNavigation(isLoggedIn: Boolean) {
                     movieId = route.movieId,
                     onBack = { navController.popBackStack() },
                     onOpenTrailer = { key ->
-                        // Handled via platform-specific intent
                         openYouTube(key)
                     }
                 )

@@ -39,10 +39,7 @@ class MoviesRepository(
     fun buildBackdropUrl(path: String?) = buildImageUrl(path, backdropSize)
     fun buildProfileUrl(path: String?) = buildImageUrl(path, profileSize)
 
-    /**
-     * Sinhronizuje jednu stranicu kataloga sa servera u Room.
-     * Vraca true ako postoji jos stranica (za paginaciju).
-     */
+
     suspend fun syncMovies(filters: FilterParams, page: Int = 1): Boolean {
         val response = api.getMovies(
             page = page,
@@ -66,7 +63,6 @@ class MoviesRepository(
     }
 
     fun getFilteredMovies(filters: FilterParams): Flow<List<Movie>> {
-        // Poklapa se sa serijalizovanim oblikom u genresJson: [{"id":18,"name":"Drama"},...]
         val genreSearch = filters.genreId?.let { "\"id\":$it," }
         return moviesDao.getFilteredMovies(
             query = filters.query.ifBlank { null },
