@@ -92,7 +92,7 @@ fun MoviesScreen(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
-                    "${state.movies.size} movies",
+                    "${state.totalItems} movies",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -159,39 +159,57 @@ fun MoviesScreen(
                 else -> {
                     val listState = rememberLazyListState()
 
-                    val shouldLoadMore by remember {
-                        derivedStateOf {
-                            val info = listState.layoutInfo
-                            val lastVisible = info.visibleItemsInfo.lastOrNull()?.index ?: 0
-                            info.totalItemsCount > 0 && lastVisible >= info.totalItemsCount - 4
-                        }
-                    }
-                    LaunchedEffect(shouldLoadMore) {
-                        if (shouldLoadMore) viewModel.setEvent(MoviesContract.UiEvent.LoadNextPage)
-                    }
+                    // Pri prelasku na drugu stranu vrati skrol na vrh
+                    LaunchedEffect(state.page) { listState.scrollToItem(0) }
 
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        items(state.movies, key = { it.imdbId }) { movie ->
-                            MovieListItem(movie = movie, onClick = { onMovieClick(movie.imdbId) })
-                        }
-                        if (state.isLoadingMore) {
-                            item {
-                                Box(
-                                    Modifier.fillMaxWidth().padding(16.dp),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    CircularProgressIndicator(Modifier.size(28.dp))
-                                }
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier.weight(1f).fillMaxWidth(),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(state.movies, key = { it.imdbId }) { movie ->
+                                MovieListItem(movie = movie, onClick = { onMovieClick(movie.imdbId) })
                             }
                         }
+                        PaginationBar(
+                            page = state.page,
+                            totalPages = state.totalPages,
+                            canGoPrev = state.canGoPrev,
+                            canGoNext = state.canGoNext,
+                            onPrev = { viewModel.setEvent(MoviesContract.UiEvent.PrevPage) },
+                            onNext = { viewModel.setEvent(MoviesContract.UiEvent.NextPage) }
+                        )
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun PaginationBar(
+    page: Int,
+    totalPages: Int,
+    canGoPrev: Boolean,
+    canGoNext: Boolean,
+    onPrev: () -> Unit,
+    onNext: () -> Unit
+) {
+    Surface(tonalElevation = 3.dp, shadowElevation = 8.dp) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            OutlinedButton(onClick = onPrev, enabled = canGoPrev) { Text("‹ Prev") }
+            Text(
+                "Page $page / $totalPages",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold
+            )
+            Button(onClick = onNext, enabled = canGoNext) { Text("Next ›") }
         }
     }
 }

@@ -8,7 +8,6 @@ interface MoviesContract {
 
     data class UiState(
         val isLoading: Boolean = false,
-        val isLoadingMore: Boolean = false,
         val movies: List<Movie> = emptyList(),
         val error: String? = null,
         val isOffline: Boolean = false,
@@ -17,13 +16,18 @@ interface MoviesContract {
         val genres: List<Genre> = emptyList(),
         val isSynced: Boolean = false,
         val page: Int = 1,
-        val endReached: Boolean = false
-    )
+        val totalPages: Int = 1,
+        val totalItems: Int = 0
+    ) {
+        val canGoPrev: Boolean get() = page > 1 && !isLoading
+        val canGoNext: Boolean get() = page < totalPages && !isLoading
+    }
 
     sealed class UiEvent {
         data object LoadMovies : UiEvent()
         data object RetryLoad : UiEvent()
-        data object LoadNextPage : UiEvent()
+        data object NextPage : UiEvent()
+        data object PrevPage : UiEvent()
         data class ApplyFilters(val filters: FilterParams) : UiEvent()
         data class UpdatePendingFilters(val filters: FilterParams) : UiEvent()
         data object ClearFilters : UiEvent()

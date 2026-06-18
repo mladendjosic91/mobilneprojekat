@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import androidx.room.Transaction
 import com.example.rma_premiere.data.local.entity.MovieDetailsEntity
 import com.example.rma_premiere.data.local.entity.MovieEntity
 import kotlinx.coroutines.flow.Flow
@@ -13,6 +14,13 @@ interface MoviesDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMovies(movies: List<MovieEntity>)
+
+    /** Atomarno zamenjuje sadržaj kataloga trenutnom stranom (page-by-page prikaz). */
+    @Transaction
+    suspend fun replaceMovies(movies: List<MovieEntity>) {
+        deleteAllMovies()
+        insertMovies(movies)
+    }
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertMovieDetails(details: MovieDetailsEntity)

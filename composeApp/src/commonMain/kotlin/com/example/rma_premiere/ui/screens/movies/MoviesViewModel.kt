@@ -45,7 +45,8 @@ class MoviesViewModel(
                     MoviesContract.UiEvent.LoadMovies,
                     MoviesContract.UiEvent.RetryLoad -> refresh()
 
-                    MoviesContract.UiEvent.LoadNextPage -> loadNextPage()
+                    MoviesContract.UiEvent.NextPage -> goToPage(_state.value.page + 1)
+                    MoviesContract.UiEvent.PrevPage -> goToPage(_state.value.page - 1)
 
                     is MoviesContract.UiEvent.ApplyFilters -> applyFilters(event.filters)
 
@@ -79,14 +80,16 @@ class MoviesViewModel(
 
     private fun refresh() {
         viewModelScope.launch {
-            setState { copy(isLoading = true, error = null, isOffline = false, page = 1, endReached = false) }
+            setState { copy(isLoading = true, error = null, isOffline = false) }
             try {
                 if (_state.value.genres.isEmpty()) {
                     val genres = moviesRepository.getGenres()
                     setState { copy(genres = genres) }
                 }
-                val hasMore = moviesRepository.syncMovies(_state.value.filters, page = 1)
-                setState { copy(isLoading = false, isSynced = true, endReached = !hasMore) }
+                val info = moviesRepository.syncMovies(_state.value.filters, page = 1)
+                setState {
+                    copy(isLoading = false, isSynced = true, page = info.page, totalPages = info.totalPages, totalItems = info.totalItems)
+                }
             } catch (e: Exception) {
                 setState {
                     copy(
@@ -100,18 +103,25 @@ class MoviesViewModel(
         }
     }
 
-    private fun loadNextPage() {
+    private fun goToPage(target: Int) {
         val current = _state.value
-        if (current.isLoading || current.isLoadingMore || current.endReached || !current.isSynced) return
+        if (current.isLoading || target < 1 || target > current.totalPages || target == current.page) return
         viewModelScope.launch {
-            setState { copy(isLoadingMore = true) }
+            setState { copy(isLoading = true, error = null, isOffline = false) }
             try {
-                val nextPage = _state.value.page + 1
-                val hasMore = moviesRepository.syncMovies(_state.value.filters, page = nextPage)
-                setState { copy(isLoadingMore = false, page = nextPage, endReached = !hasMore) }
+                val info = moviesRepository.syncMovies(current.filters, page = target)
+                setState {
+                    copy(isLoading = false, page = info.page, totalPages = info.totalPages, totalItems = info.totalItems)
+                }
             } catch (e: Exception) {
-                // Greska pri ucitavanju sledece strane ne rusi listu — zadrzavamo postojece podatke
-                setState { copy(isLoadingMore = false, isOffline = e.isNetworkError) }
+                setState {
+                    copy(
+                        isLoading = false,
+                        isOffline = e.isNetworkError,
+                        error = if (e.isNetworkError) "No connection. Showing saved movies."
+                                else e.message ?: "Failed to load page"
+                    )
+                }
             }
         }
     }
@@ -119,19 +129,13 @@ class MoviesViewModel(
     private fun applyFilters(filters: FilterParams) {
         viewModelScope.launch {
             setState {
-                copy(
-                    isLoading = true,
-                    filters = filters,
-                    pendingFilters = filters,
-                    error = null,
-                    isOffline = false,
-                    page = 1,
-                    endReached = false
-                )
+                copy(isLoading = true, filters = filters, pendingFilters = filters, error = null, isOffline = false)
             }
             try {
-                val hasMore = moviesRepository.syncMovies(filters, page = 1)
-                setState { copy(isLoading = false, isSynced = true, endReached = !hasMore) }
+                val info = moviesRepository.syncMovies(filters, page = 1)
+                setState {
+                    copy(isLoading = false, isSynced = true, page = info.page, totalPages = info.totalPages, totalItems = info.totalItems)
+                }
             } catch (e: Exception) {
                 setState {
                     copy(

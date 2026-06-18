@@ -11,10 +11,21 @@ import com.example.rma_premiere.domain.model.MovieDetails
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
+/** Meta-podaci jedne strane kataloga, vraćeni nakon sinhronizacije. */
+data class MoviesPageInfo(
+    val page: Int,
+    val totalPages: Int,
+    val totalItems: Int
+)
+
 class MoviesRepository(
     private val api: MoviesApi,
     private val moviesDao: MoviesDao
 ) {
+    private companion object {
+        const val PAGE_SIZE = 30
+    }
+
     private var imageBaseUrl: String = "https://image.tmdb.org/t/p/"
     private var posterSize: String = "w342"
     private var backdropSize: String = "w780"
@@ -40,10 +51,15 @@ class MoviesRepository(
     fun buildProfileUrl(path: String?) = buildImageUrl(path, profileSize)
 
 
-    suspend fun syncMovies(filters: FilterParams, page: Int = 1): Boolean {
+    /**
+     * Dovlači jednu stranu kataloga sa servera i njome ZAMENJUJE sadržaj Room-a
+     * (page-by-page: baza drži tačno trenutnu stranu). Vraća meta-podatke za
+     * navigaciju strana. Veličina strane (30) ujedno je i bazen za kviz (>= 10).
+     */
+    suspend fun syncMovies(filters: FilterParams, page: Int = 1): MoviesPageInfo {
         val response = api.getMovies(
             page = page,
-            pageSize = 30,
+            pageSize = PAGE_SIZE,
             sortBy = filters.sortBy,
             sortOrder = filters.sortOrder,
             genreId = filters.genreId,
@@ -53,13 +69,12 @@ class MoviesRepository(
             minRating = filters.minRating
         )
         val entities = response.items.map { it.toEntity() }
-        val noFilters = filters.query.isBlank() && filters.genreId == null &&
-                filters.minYear == null && filters.maxYear == null && filters.minRating == null
-        if (page == 1 && noFilters) {
-            moviesDao.deleteAllMovies()
-        }
-        moviesDao.insertMovies(entities)
-        return response.page < response.totalPages
+        moviesDao.replaceMovies(entities)
+        return MoviesPageInfo(
+            page = response.page,
+            totalPages = response.totalPages,
+            totalItems = response.totalItems
+        )
     }
 
     fun getFilteredMovies(filters: FilterParams): Flow<List<Movie>> {
